@@ -1,6 +1,7 @@
 package edge
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -12,6 +13,14 @@ type Edge struct {
 	Value    bool
 	Duration time.Duration
 	Tail     bool
+}
+
+func (e Edge) String() string {
+	var v int
+	if e.Value {
+		v = 1
+	}
+	return fmt.Sprintf("%v, %v, %v", v, e.Duration, e.Tail)
 }
 
 // Edges is all of the data.
@@ -27,6 +36,17 @@ func (e Edges) Values() []bool {
 }
 
 func (e Edges) String() string {
+	var sb strings.Builder
+	for i, ee := range e {
+		sb.WriteString(fmt.Sprintf("%d, ", i))
+		sb.WriteString(ee.String())
+		sb.WriteRune('\n')
+	}
+	sb.WriteString(fmt.Sprintf("%d edges\n", len(e)))
+	return sb.String()
+}
+
+func (e Edges) Graphic() string {
 	var sb strings.Builder
 	for _, ee := range e {
 		if ee.Value {

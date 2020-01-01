@@ -45,7 +45,7 @@ func (d *Decoder) Next() (value int, ok bool, err error) {
 			err = errors.New("header mark does not match Panasonic header value")
 			return
 		}
-		if !between(time.Microsecond*1751, time.Microsecond*5253, d.edges[d.index].Duration) {
+		if !between(time.Microsecond*1005, time.Microsecond*5253, d.edges[d.index].Duration) {
 			err = fmt.Errorf("expected header mark at %d to last 3502µs, but was %v", d.index, d.edges[d.index].Duration)
 			return
 		}
@@ -67,10 +67,6 @@ func (d *Decoder) Next() (value int, ok bool, err error) {
 		err = fmt.Errorf("expected bit mark at %d to be low", d.index)
 		return
 	}
-	if !between(time.Microsecond*251, time.Microsecond*753, d.edges[d.index].Duration) {
-		err = fmt.Errorf("expected bit mark at %d to last 502µs, but was %v", d.index, d.edges[d.index].Duration)
-		return
-	}
 	// Read the space mark to work out whether it's a zero or one.
 	d.index++
 	if d.edges[d.index].Value != false {
@@ -78,14 +74,14 @@ func (d *Decoder) Next() (value int, ok bool, err error) {
 		return
 	}
 	// If it's 1244µs, then it's a one.
-	if between(time.Microsecond*622, time.Microsecond*1866, d.edges[d.index].Duration) {
+	if d.edges[d.index].Duration >= time.Microsecond*1000 {
 		value = 1
 		ok = true
 		d.index++
 		return
 	}
 	// If it's 400µs, then it's a zero.
-	if between(time.Microsecond*200, time.Microsecond*600, d.edges[d.index].Duration) {
+	if d.edges[d.index].Duration < time.Microsecond*1000 {
 		value = 0
 		ok = true
 		d.index++
