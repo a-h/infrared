@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/a-h/infrared/decoder"
 	"github.com/a-h/infrared/edge"
 	"github.com/stianeikeland/go-rpio/v4"
 )
@@ -37,6 +38,22 @@ func main() {
 		if e.Tail {
 			// Write it out.
 			fmt.Println(op)
+			// Now decode it.
+			d := decoder.New(op)
+			for {
+				v, ok, err := d.Next()
+				if err != nil {
+					fmt.Println()
+					fmt.Printf("Decoding error: %v\n", err)
+					break
+				}
+				if !ok {
+					break
+				}
+				fmt.Printf("%v", v)
+			}
+			fmt.Println()
+
 			// Clear the array to make space.
 			op = make(edge.Edges, 0)
 		}
