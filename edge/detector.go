@@ -1,6 +1,7 @@
 package edge
 
 import (
+	"strings"
 	"time"
 
 	"github.com/stianeikeland/go-rpio/v4"
@@ -25,25 +26,42 @@ func (e Edges) Values() []bool {
 	return op
 }
 
+func (e Edges) String() string {
+	var sb strings.Builder
+	for _, ee := range e {
+		if ee.Value {
+			sb.WriteString(strings.Repeat("_", int(ee.Duration.Milliseconds()+1)))
+		} else {
+			sb.WriteString(strings.Repeat("─", int(ee.Duration.Milliseconds()+1)))
+		}
+	}
+	sb.WriteRune('\n')
+	return sb.String()
+}
+
 // Reader of a pin. For example, an rpio.Pin.
 type Reader interface {
 	Read() rpio.State
 }
 
-// New creates a new edge detector.
+// NewDetector creates a new edge detector.
 // Can take in an rpio.Pin.
-func New(pin Reader) *Detector {
+func NewDetector(pin Reader, timeout time.Duration) *Detector {
 	now := time.Now()
 	return &Detector{
-		now:   time.Now,
-		pin:   pin,
-		t:     now,
-		first: true,
+		Timeout: timeout,
+		now:     time.Now,
+		pin:     pin,
+		t:       now,
+		first:   true,
 	}
 }
 
 // A Detector detects changes in a pin by sampling the pin value.
 type Detector struct {
+	// Timeout is the maximum the detector will wait for a state change. Used to detect the end
+	// of the transmission.
+	Timeout time.Duration
 	// Now is a function which returns the current time.
 	now func() time.Time
 	// Pin that we're reading from.
@@ -57,8 +75,6 @@ type Detector struct {
 	// First sample taken?
 	first bool
 }
-
-const timeout = time.Millisecond
 
 func stateToBool(s rpio.State) bool {
 	return s == rpio.Low
@@ -105,7 +121,7 @@ func (r *Detector) Read(d chan Edge) {
 		return
 	}
 	// Deal with timeouts.
-	if !r.first && timeSinceLastChange > timeout {
+	if !r.first && timeSinceLastChange > r.Timeout {
 		d <- Edge{
 			Value:    r.pv,
 			Duration: timeSinceLastChange,

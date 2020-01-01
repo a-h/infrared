@@ -60,7 +60,7 @@ func TestDetect(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			ed := New(test.pin)
+			ed := NewDetector(test.pin, time.Millisecond)
 			edges := ed.ReadN(len(test.pin.samples), 500*time.Microsecond)
 			if len(test.isTail) > 0 {
 				for i, v := range test.isTail {

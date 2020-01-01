@@ -5,10 +5,9 @@ import (
 	"log"
 	"time"
 
+	"github.com/a-h/infrared/edge"
 	"github.com/stianeikeland/go-rpio/v4"
 )
-
-var sleepTime = time.Microsecond * 500
 
 func main() {
 	err := rpio.Open()
@@ -19,24 +18,27 @@ func main() {
 	irIn := rpio.Pin(4)
 	irIn.Input()
 
-	for {
-		currentValue := irIn.Read()
-		if currentValue == rpio.Low {
-			// Take the first value and put it into the array.
-			record := make([]int, 64)
-			record[0] = int(currentValue)
-			time.Sleep(sleepTime)
-			//TODO: Read the next 31 values and put it into the array.
-			for i := 1; i < len(record); i++ {
-				record[i] = int(irIn.Read())
-				time.Sleep(sleepTime)
-			}
-			fmt.Println(record)
+	ed := edge.NewDetector(irIn, time.Millisecond*10)
+
+	// Create a channel to receive the data.
+	d := make(chan edge.Edge)
+
+	// Start reading in another thread.
+	go func() {
+		for {
+			ed.Read(d)
+			time.Sleep(time.Microsecond * 50)
 		}
-		time.Sleep(sleepTime)
+	}()
+
+	var op edge.Edges
+	for e := range d {
+		op = append(op, e)
+		if e.Tail {
+			// Write it out.
+			fmt.Println(op)
+			// Clear the array to make space.
+			op = make(edge.Edges, 0)
+		}
 	}
 }
-
-// Record infrared signals and store them against a remote control key.
-// Display the right key when a signal is received.
-// Play them back later.
