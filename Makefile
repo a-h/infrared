@@ -1,0 +1,8 @@
+build:
+	GOOS=linux GOARCH=arm GOARM=5 go build
+
+deploy:
+	scp ./infrared pi@192.168.0.49:/home/pi/infrared
+
+.PHONY:
+	build deploy
