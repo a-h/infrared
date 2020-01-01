@@ -10,6 +10,7 @@ import (
 type Edge struct {
 	Value    bool
 	Duration time.Duration
+	Tail     bool
 }
 
 // Edges is all of the data.
@@ -108,6 +109,7 @@ func (r *Detector) Read(d chan Edge) {
 		d <- Edge{
 			Value:    r.pv,
 			Duration: timeSinceLastChange,
+			Tail:     true,
 		}
 		r.pv = cv
 		r.t = now
