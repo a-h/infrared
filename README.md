@@ -1,3 +1,18 @@
+# Infrared
+
+A Go library for reading Infrared signals on the Raspberry Pi.
+
+Tested on the Raspberry Pi Zero with Go 1.13.
+
+Currently only supports the Panasonic remote for my TV.
+
+<img src="example.jpg" height="400"/>
+
+## Example
+
+View `main.go` to see a demonstration of graceful shutdown.
+
+```go
 package main
 
 import (
@@ -26,12 +41,7 @@ func main() {
 	codes := make(chan uint64, 64)
 
 	// Start a routine to receive IR codes.
-	var wg sync.WaitGroup
-	wg.Add(1)
 	go func() {
-		// Allow the function to exit gracefully.
-		defer wg.Done()
-		// This for loop quits when close(codes) happens.
 		for code := range codes {
 			// This program expects Panasonic codes so we can look up the names and print them.
 			fmt.Println(code, decoder.PanasonicCodeToKey[code])
@@ -42,6 +52,5 @@ func main() {
 	ed := edge.NewDetector(irIn)
 	ed.Decode(context.Background(), decoder.Panasonic, codes)
 	close(codes)
-	// Wait for graceful exit of the handler.
-	wg.Wait()
 }
+```
