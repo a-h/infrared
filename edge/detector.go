@@ -1,6 +1,7 @@
 package edge
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -46,30 +47,24 @@ func (e Edges) String() string {
 	return sb.String()
 }
 
-func (e Edges) Graphic() string {
-	var sb strings.Builder
-	for _, ee := range e {
-		if ee.Value {
-			sb.WriteString(strings.Repeat("_", int(ee.Duration.Milliseconds()+1)))
-		} else {
-			sb.WriteString(strings.Repeat("─", int(ee.Duration.Milliseconds()+1)))
-		}
-	}
-	sb.WriteRune('\n')
-	return sb.String()
-}
-
 // Reader of a pin. For example, an rpio.Pin.
 type Reader interface {
 	Read() rpio.State
 }
 
+// DefaultTailTimeout is the default wait time of the end of a signal.
+const DefaultTailTimeout = 10 * time.Millisecond
+
+// DefaultBufferSize of edges stored in RAM. Set to 64 bits * 2 (high/low), + 32 extra for start / stop.
+const DefaultBufferSize = 128 + 32
+
 // NewDetector creates a new edge detector.
 // Can take in an rpio.Pin.
-func NewDetector(pin Reader, timeout time.Duration) *Detector {
+func NewDetector(pin Reader) *Detector {
 	now := time.Now()
 	return &Detector{
-		Timeout: timeout,
+		Timeout: DefaultTailTimeout,
+		Buffer:  make(Edges, DefaultBufferSize),
 		now:     time.Now,
 		pin:     pin,
 		t:       now,
@@ -88,6 +83,11 @@ type Detector struct {
 	// Can take in an rpio.Pin.
 	pin Reader
 
+	// Buffer of stored edges.
+	Buffer Edges
+	// Index within the buffer.
+	index int
+
 	// Previous Value of the pin.
 	pv bool
 	// Time of the last pin sample.
@@ -96,34 +96,42 @@ type Detector struct {
 	first bool
 }
 
-func stateToBool(s rpio.State) bool {
-	return s == rpio.Low
-}
-
-// ReadN samples from the pin.
-func (r *Detector) ReadN(n int, every time.Duration) Edges {
-	d := make(chan Edge)
-
-	go func() {
-		defer close(d)
-		for i := 0; i < n; i++ {
-			r.Read(d)
-			time.Sleep(every)
+// Decode infrared signals using the decoder d. The values are output to c.
+func (r *Detector) Decode(ctx context.Context, d func(e Edges) (uint64, error), c chan uint64) {
+	//TODO: Handle excessive quantities of IR data without a tail.
+	for {
+		ok := r.Read(&r.Buffer[r.index])
+		if ok {
+			if r.Buffer[r.index].Tail {
+				if r.index > 1 {
+					// Decode what we have and put it on the channel.
+					// We can leave off the tail, it's not important.
+					v, _ := d(r.Buffer[0 : r.index-1])
+					c <- v
+				}
+				r.index = 0
+			} else {
+				r.index++
+			}
 		}
-	}()
-
-	var op []Edge
-	for v := range d {
-		op = append(op, v)
+		if ctx.Err() != nil {
+			break
+		}
+		if r.index == 0 {
+			// Yield to give other routines time to work.
+			time.Sleep(time.Microsecond * 20)
+		}
 	}
-	return op
 }
 
 // Read the pin to see if there have been any changes.
-func (r *Detector) Read(d chan Edge) {
+func (r *Detector) Read(edge *Edge) (ok bool) {
 	now := r.now()
-	cv := stateToBool(r.pin.Read())
-	timeSinceLastChange := now.Sub(r.t)
+	cv := r.pin.Read() == rpio.Low
+	dur := now.Sub(r.t)
+	edge.Value = r.pv
+	edge.Duration = dur
+	edge.Tail = false
 	if cv != r.pv {
 		// The first state change is ignored.
 		if r.first {
@@ -132,24 +140,24 @@ func (r *Detector) Read(d chan Edge) {
 			r.t = now
 			return
 		}
-		d <- Edge{
-			Value:    r.pv,
-			Duration: timeSinceLastChange,
-		}
+		edge.Value = r.pv
+		edge.Duration = dur
+		edge.Tail = false
+		ok = true
 		r.pv = cv
 		r.t = now
 		return
 	}
 	// Deal with timeouts.
-	if !r.first && timeSinceLastChange > r.Timeout {
-		d <- Edge{
-			Value:    r.pv,
-			Duration: timeSinceLastChange,
-			Tail:     true,
-		}
+	if !r.first && dur > r.Timeout {
+		edge.Value = r.pv
+		edge.Duration = dur
+		edge.Tail = true
+		ok = true
 		r.pv = cv
 		r.t = now
 		// We've now hit the steady state.
 		r.first = true
 	}
+	return
 }

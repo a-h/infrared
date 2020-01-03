@@ -8,92 +8,79 @@ import (
 	"github.com/a-h/infrared/edge"
 )
 
-// New creates a new Decoder.
-func New(edges edge.Edges) *Decoder {
-	return &Decoder{
-		edges: edges,
-	}
+// PanasonicCodeToKey is a map of Panasonic IR codes to the remote control labels.
+var PanasonicCodeToKey = map[uint64]string{
+	208069699051522: "Power",
+	15973142765570:  "Guide",
+	195919270125570: "InputTV",
+	146256529727490: "InputAV",
+	231249637548034: "Menu",
+	142949421686786: "Text",
+	145157034876930: "Still",
+	99909604745218:  "Aspect",
+	203654472671234: "Info",
+	92165711601666:  "Exit",
+	7211409481730:   "Apps",
+	136279471693826: "NetFlix",
+	31426435096578:  "Home",
+	222419184787458: "Up",
+	223522991382530: "Down",
+	226834411167746: "Left",
+	227938217762818: "Right",
+	51294953807874:  "Option",
+	93269518196738:  "Back",
+	221315378192386: "OK",
 }
 
-// Decoder decdes edges to values.
-type Decoder struct {
-	edges edge.Edges
-	index int
-}
-
-/*
-https://github.com/z3t0/Arduino-IRremote/blob/master/ir_Panasonic.cpp
-#define PANASONIC_BITS          48
-#define PANASONIC_HDR_MARK    3502
-#define PANASONIC_HDR_SPACE   1750
-#define PANASONIC_BIT_MARK     502
-#define PANASONIC_ONE_SPACE   1244
-#define PANASONIC_ZERO_SPACE   400
-*/
-
-// Next continues decoding the edges.
-func (d *Decoder) Next() (value int, ok bool, err error) {
-	if len(d.edges)%2 != 0 {
-		//TODO: Error on that because it should be even. But not just yet.
+// Panasonic infrared decoder.
+func Panasonic(edges edge.Edges) (v uint64, err error) {
+	if len(edges) == 0 {
+		fmt.Println("Shouldn't end up with no edges")
 	}
-	if d.index >= len(d.edges) {
+	if len(edges)%2 != 0 {
+		err = fmt.Errorf("the count of marks and spaces in Panasonic IR signals must be an even number, got %d", len(edges))
 		return
 	}
-	if d.index == 0 {
-		// Read the low part of the header.
-		if d.edges[d.index].Value == false {
-			err = errors.New("header mark does not match Panasonic header value")
+	// Read the low part of the header.
+	if edges[0].Value == false {
+		err = errors.New("header mark does not match Panasonic header value")
+		return
+	}
+	if !between(time.Microsecond*1005, time.Microsecond*5253, edges[0].Duration) {
+		err = fmt.Errorf("expected header to last 3502µs, but was %v", edges[0].Duration)
+		return
+	}
+	// Read the high part of the header.
+	if edges[1].Value == true {
+		err = errors.New("header space does not match Panasonic header value")
+		return
+	}
+	if !between(time.Microsecond*875, time.Microsecond*2625, edges[1].Duration) {
+		err = fmt.Errorf("expected header space to last 1750µs, but was %v", edges[1].Duration)
+		return
+	}
+	// Skip the header and read the bits.
+	bitOffset := 2
+	for i := 0; i < len(edges)-bitOffset; i += 2 {
+		// Read the bit mark.
+		bit := edges[i+bitOffset]
+		if bit.Value != true {
+			err = fmt.Errorf("expected bit mark at %d to be low", i+bitOffset)
 			return
 		}
-		if !between(time.Microsecond*1005, time.Microsecond*5253, d.edges[d.index].Duration) {
-			err = fmt.Errorf("expected header mark at %d to last 3502µs, but was %v", d.index, d.edges[d.index].Duration)
+		// Read the space mark to work out whether it's a zero or one.
+		space := edges[i+bitOffset+1]
+		if space.Value != false {
+			err = fmt.Errorf("expected bit space at %d to be high", i+bitOffset)
 			return
 		}
-		d.index++
-		// Read the high part of the header.
-		if d.edges[d.index].Value == true {
-			err = errors.New("header space does not match Panasonic header value")
-			return
+		// If the space is 400µs, it's a zero, if it's 1244µs it's a one.
+		// The timing can be relatively loose, so if it's greater than 900ms, it's probably a one.
+		if space.Duration >= time.Microsecond*800 {
+			// There is a mark and a space for each bit, so i is divided by 2.
+			v |= (1 << (i / 2))
 		}
-		if !between(time.Microsecond*875, time.Microsecond*2625, d.edges[d.index].Duration) {
-			err = fmt.Errorf("expected header space at %d to last 1750µs, but was %v", d.index, d.edges[d.index].Duration)
-			return
-		}
-		d.index++
-		return d.Next()
 	}
-	// Read the bit mark.
-	if d.edges[d.index].Value != true {
-		err = fmt.Errorf("expected bit mark at %d to be low", d.index)
-		return
-	}
-	// Read the space mark to work out whether it's a zero or one.
-	d.index++
-	if d.edges[d.index].Value != false {
-		err = fmt.Errorf("expected bit space at %d to be high", d.index)
-		return
-	}
-	// If it's 1244µs, then it's a one.
-	if d.edges[d.index].Duration >= time.Microsecond*1000 {
-		value = 1
-		ok = true
-		d.index++
-		return
-	}
-	// If it's 400µs, then it's a zero.
-	if d.edges[d.index].Duration < time.Microsecond*1000 {
-		value = 0
-		ok = true
-		d.index++
-		return
-	}
-	if d.edges[d.index].Tail && d.edges[d.index].Value == false {
-		value = 0
-		ok = true
-		d.index++
-		return
-	}
-	err = fmt.Errorf("expected bit space mark at %d to be 400µs for a zero, or 1244µs for a one, but was %v", d.index, d.edges[d.index].Duration)
 	return
 }
 
